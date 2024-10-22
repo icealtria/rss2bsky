@@ -1,0 +1,20 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "rss2bsky"
+main = "src/index.ts"
+compatibility_date = "2024-10-11"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[observability]
+enabled = true
+
+[[kv_namespaces]]
+binding = "KV"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+[vars]
+BSKY_USERNAME = "xxx.bsky.social"
+BSKY_PASSWORD = "xxxx-xxxx-xxxx-xxxx"
+FEED_URL = "https://example.com/feed.xml"
