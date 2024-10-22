@@ -55,9 +55,10 @@ async function handleCron(env: Env) {
 
 	const currentItems = rssData.entries || [];
 
-	const lastItems = await env.KV.get('last_items', 'json');
+	let lastItems = await env.KV.get('last_items', 'json');
 	if (!lastItems) {
 		await saveLastGuids(currentItems, env);
+		lastItems = currentItems;
 	}
 	const lastItemSet = new Set(Array.isArray(lastItems) ? lastItems : []);
 
