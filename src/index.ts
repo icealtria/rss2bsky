@@ -22,19 +22,8 @@ export default {
 	// The scheduled handler is invoked at the interval set in our wrangler.toml's
 	// [[triggers]] configuration.
 	async scheduled(event, env, ctx): Promise<void> {
-
-		switch (event.cron) {
-			case '1-59/5 * * * *':
-				await handleCron(env);
-				break;
-			case '2-59/15 * * * *':
-				await retryFailedPosts(env);
-				break;
-			default:
-				console.log('Unknown cron schedule:', event.cron);
-				break;
-		}
-		console.log(`trigger fired at ${event.cron}`);
+		await handleCron(env);
+		await retryFailedPosts(env);
 	},
 } satisfies ExportedHandler<Env>;
 
@@ -60,9 +49,9 @@ async function handleCron(env: Env) {
 		await saveLastGuids(currentItems, env);
 		lastItems = currentItems;
 	}
-	const lastItemSet = new Set(Array.isArray(lastItems) ? lastItems : []);
 
-	const newItems = currentItems.filter((item) => !lastItemSet.has(item.id));
+	const lastItemIds = Array.isArray(lastItems) ? lastItems.map(item => item.id) : [];
+	const newItems = currentItems.filter((item) => !lastItemIds.includes(item.id));
 
 	if (newItems.length > 0) {
 		await postToBsky(newItems, env);
