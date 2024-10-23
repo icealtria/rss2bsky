@@ -4,130 +4,136 @@ import { buildPost, delay } from './utils';
 import { Post } from './types';
 
 export async function postToBsky(items: FeedEntry[], env: Env) {
-    const agent = new AtpAgent({ service: 'https://bsky.social' });
-    await agent.login({ identifier: env.BSKY_USERNAME, password: env.BSKY_PASSWORD });
-    
+    const agent = await getAgent(env);
+
     for (const item of items) {
         try {
             const post = await buildPost(item, agent);
-            await postParts(agent, post, env);
-        } catch (error: any) {
-            console.error(`Failed to post to Bluesky: ${error.message}`);
-            const failedPostKey = `failed_post_${item.id}`;
-            await env.KV.put(failedPostKey, JSON.stringify(item));
+            await postThread(agent, post, env);
+        } catch (error) {
+            console.error(`Failed to post to Bluesky:`, error);
+            await saveFailedPost(env, item);
         }
     }
 }
 
-async function postPart(
+async function postThread(
     agent: AtpAgent,
-    part: Post,
+    posts: Post[],
     env: Env,
-    previousUri?: string | undefined,
-    previousCid?: string | undefined,
-    rootUri?: string | undefined,
-    rootCid?: string | undefined,
-    delayMs: number = 5000
-): Promise<any> {
-    const post: any = {
-        text: part.text,
-        createdAt: part.createdAt,
-    };
-
-    if (previousUri && rootUri && previousCid && rootCid) {
-        post.reply = {
-            root: { uri: rootUri, cid: rootCid },
-            parent: { uri: previousUri, cid: previousCid }
-        };
-    }
-
-    console.log(`Posting to Bluesky: ${JSON.stringify(post)}`);
-
-    try {
-        const resp = await agent.post(post);
-        
-        await delay(delayMs);
-        return resp;
-
-    } catch (error: any) {
-        console.error(`Error posting: ${error.message}`);
-        throw error;
-    }
-}
-
-
-
-async function postParts(
-    agent: AtpAgent,
-    parts: Post[],
-    env: Env,
-    previousUri?: string | undefined,
-    previousCid?: string | undefined,
-    rootUri?: string | undefined,
-    rootCid?: string | undefined,
-    delayMs: number = 5000,
-    keyForRetry?: string // optional key if retrying failed posts
+    context = {
+        previousUri: undefined as string | undefined,
+        previousCid: undefined as string | undefined,
+        rootUri: undefined as string | undefined,
+        rootCid: undefined as string | undefined,
+        retryKey: undefined as string | undefined
+    },
+    delayMs = 5000
 ): Promise<void> {
-    if (parts.length === 0) return;
+    if (posts.length === 0) {
+        if (context.retryKey) await env.KV.delete(context.retryKey);
+        return;
+    }
 
-    const currentPart = parts[0];
-    const remainingParts = parts.slice(1);
+    const [currentPost, ...remainingPosts] = posts;
 
     try {
-        const resp = await postPart(agent, currentPart, env, previousUri, previousCid, rootUri, rootCid, delayMs);
-        console.log(`Successfully posted part: ${resp}`);
+        const post = createPostObject(currentPost, context);
+        const response = await agent.post(post);
+        await delay(delayMs);
 
-        const updatedRootUri = rootUri || resp.uri;
-        const updatedRootCid = rootCid || resp.cid;
-
-        await postParts(agent, remainingParts, env, resp.uri, resp.cid, updatedRootUri, updatedRootCid, delayMs);
-
-        if (keyForRetry) {
-            await env.KV.delete(keyForRetry);
-        }
-    } catch (error: any) {
-        console.error(`Failed to post part: ${error.message}. Saving for retry.`);
-
-        const failedKey = keyForRetry || `failed_post_${new Date().getTime()}`;
-        await env.KV.put(failedKey, JSON.stringify({
-            previousUri,
-            previousCid,
-            rootUri,
-            rootCid,
-            parts,
-        }));
+        // Update context for next post in thread
+        await postThread(
+            agent,
+            remainingPosts,
+            env,
+            {
+                previousUri: response.uri,
+                previousCid: response.cid,
+                rootUri: context.rootUri || response.uri,
+                rootCid: context.rootCid || response.cid,
+                retryKey: context.retryKey
+            },
+            delayMs
+        );
+    } catch (error) {
+        console.error(`Failed to post part:`, error);
+        await saveFailedThread(env, posts, context);
     }
 }
 
+export async function retryFailedPosts(env: Env, delayMs = 5000): Promise<void> {
+    const agent = await getAgent(env);
+    const failedPosts = await getFailedPosts(env);
 
-export async function retryFailedPosts(env: Env, delayMs: number = 5000): Promise<void> {
-    const agent = new AtpAgent({ service: 'https://bsky.social' });
-    await agent.login({ identifier: env.BSKY_USERNAME, password: env.BSKY_PASSWORD });
-
-
-    const failedPostKeys = await env.KV.list({ prefix: 'failed_post_' });
-
-    if (failedPostKeys.keys.length === 0) {
+    if (failedPosts.length === 0) {
         console.log('No failed posts to retry.');
         return;
     }
 
-    for (const key of failedPostKeys.keys) {
+    for (const { key, data } of failedPosts) {
         try {
-            const failedData = JSON.parse(await env.KV.get(key.name) || '{}');
-
-            const { previousUri, previousCid, rootUri, rootCid, remainingParts } = failedData;
-            if (!remainingParts || remainingParts.length === 0) {
-                console.error(`Invalid or empty remaining parts for failed post: ${key.name}. Skipping.`);
-                continue;
-            }
-
-            console.log(`Retrying remaining parts: ${remainingParts.length} with previousUri: ${previousUri || 'none'}, rootUri: ${rootUri || 'none'}`);
-
-            await postParts(agent, remainingParts, env, previousUri, previousCid, rootUri, rootCid, delayMs, key.name);
-
-        } catch (error: any) {
-            console.error(`Failed to retry post: ${key.name}. Error: ${error.message}`);
+            await postThread(agent, data.remainingParts, env, {
+                previousUri: data.previousUri,
+                previousCid: data.previousCid,
+                rootUri: data.rootUri,
+                rootCid: data.rootCid,
+                retryKey: key
+            }, delayMs);
+        } catch (error) {
+            console.error(`Failed to retry post ${key}:`, error);
         }
     }
+}
+
+async function getAgent(env: Env): Promise<AtpAgent> {
+    const agent = new AtpAgent({ service: 'https://bsky.social' });
+    await agent.login({ identifier: env.BSKY_USERNAME, password: env.BSKY_PASSWORD });
+    return agent;
+}
+
+function createPostObject(post: Post, context: any) {
+    const postObject: any = {
+        text: post.text,
+        createdAt: post.createdAt,
+    };
+
+    if (context.previousUri && context.rootUri && context.previousCid && context.rootCid) {
+        postObject.reply = {
+            root: { uri: context.rootUri, cid: context.rootCid },
+            parent: { uri: context.previousUri, cid: context.previousCid }
+        };
+    }
+
+    return postObject;
+}
+
+async function saveFailedPost(env: Env, item: FeedEntry) {
+    const failedPostKey = `failed_post_${item.id}`;
+    await env.KV.put(failedPostKey, JSON.stringify(item));
+}
+
+async function saveFailedThread(env: Env, posts: Post[], context: any) {
+    const failedKey = context.retryKey || `failed_post_${new Date().getTime()}`;
+    await env.KV.put(failedKey, JSON.stringify({
+        previousUri: context.previousUri,
+        previousCid: context.previousCid,
+        rootUri: context.rootUri,
+        rootCid: context.rootCid,
+        remainingParts: posts,
+    }));
+}
+
+async function getFailedPosts(env: Env) {
+    const failedPostKeys = await env.KV.list({ prefix: 'failed_post_' });
+    const failedPosts = [];
+
+    for (const { name } of failedPostKeys.keys) {
+        const data = JSON.parse(await env.KV.get(name) || '{}');
+        if (data.remainingParts?.length > 0) {
+            failedPosts.push({ key: name, data });
+        }
+    }
+
+    return failedPosts;
 }
