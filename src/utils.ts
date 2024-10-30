@@ -118,6 +118,7 @@ export async function uploadImagesToBluesky(agent: AtpAgent, imageUrls: string[]
         const blob = await fetchImageAsBlob(url);
         const { data } = await agent.uploadBlob(blob);
         images.push({
+            alt: `${url}`,
             image: data.blob,
         });
     }

@@ -94,8 +94,7 @@ async function getAgent(env: Env): Promise<AtpAgent> {
 
 function createPostObject(post: Post, context: any) {
     const postObject: any = {
-        text: post.text,
-        createdAt: post.createdAt,
+        ...post,
     };
 
     if (context.previousUri && context.rootUri && context.previousCid && context.rootCid) {
