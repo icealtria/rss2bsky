@@ -63,14 +63,15 @@ async function postThread(
 }
 
 export async function retryFailedPosts(env: Env, delayMs = 5000): Promise<void> {
-    const agent = await getAgent(env);
     const failedPosts = await getFailedPosts(env);
-
+    
     if (failedPosts.length === 0) {
         console.log('No failed posts to retry.');
         return;
     }
-
+    
+    const agent = await getAgent(env);
+    
     for (const { key, data } of failedPosts) {
         try {
             await postThread(agent, data.remainingParts, env, {
