@@ -8,7 +8,7 @@ export async function postToBsky(items: FeedEntry[], env: Env) {
 
     for (const item of items) {
         try {
-            const post = await buildPost(item, agent);
+            const post = await buildPost(item, agent, env.WITH_TITLE);
             await postThread(agent, post, env);
         } catch (error) {
             console.error(`Failed to post to Bluesky:`, error);
@@ -16,7 +16,6 @@ export async function postToBsky(items: FeedEntry[], env: Env) {
         }
     }
 }
-
 async function postThread(
     agent: AtpAgent,
     posts: Post[],
@@ -61,19 +60,19 @@ async function postThread(
         await saveFailedThread(env, posts, context);
     }
 }
-
 export async function retryFailedPosts(env: Env, delayMs = 5000): Promise<void> {
     const failedPosts = await getFailedPosts(env);
-    
+    console.log(`Retrying ${failedPosts.length} failed posts...`);
     if (failedPosts.length === 0) {
         console.log('No failed posts to retry.');
         return;
     }
-    
+
     const agent = await getAgent(env);
-    
+
     for (const { key, data } of failedPosts) {
         try {
+            console.log(`Retrying post ${key}...`);
             await postThread(agent, data.remainingParts, env, {
                 previousUri: data.previousUri,
                 previousCid: data.previousCid,

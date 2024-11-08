@@ -5,4 +5,5 @@ interface Env {
     BSKY_USERNAME: string;
     BSKY_PASSWORD: string;
     FEED_URL: string;
+    WITH_TITLE: boolean;
 }

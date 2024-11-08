@@ -1,5 +1,5 @@
 import AtpAgent from "@atproto/api";
-import { Post } from "./types";
+import { Post, Title } from "./types";
 import { FeedEntry } from "@extractus/feed-extractor";
 
 export const buildDescription = (val: string) => {
@@ -65,14 +65,14 @@ export function extractImageUrls(html: string): string[] {
     return imageUrls;
 }
 
-export async function buildPost(item: FeedEntry, agent: AtpAgent): Promise<Post[]> {
+export async function buildPost(item: FeedEntry, agent: AtpAgent, title?: boolean): Promise<Post[]> {
 
     function helper(
         texts: string[],
         images: any[][],
         createdAt: string,
         index: number = 0,
-        posts: Post[] = []
+        posts: Post[] = [],
     ): Post[] {
         if (index >= texts.length && index >= images.length) {
             return posts;
@@ -82,6 +82,26 @@ export async function buildPost(item: FeedEntry, agent: AtpAgent): Promise<Post[
             text: texts[index] || undefined,
             createdAt
         };
+
+
+        if (title && item.title && item.link) {
+            const byteLength = getByteLength(item.title);
+            post.facets = [
+                {
+                    index: {
+                        byteStart: 0,
+                        byteEnd: byteLength
+                    },
+                    features: [
+                        {
+                            $type: 'app.bsky.richtext.facet#link',
+                            uri: item.link
+                        }
+                    ]
+
+                }
+            ];
+        }
 
         if (images[index]) {
             post.embed = {
@@ -100,7 +120,10 @@ export async function buildPost(item: FeedEntry, agent: AtpAgent): Promise<Post[
 
     const createdAt = item.published || new Date().toISOString();
 
-    const text = buildDescription(item.description || '');
+    let text = buildDescription(item.description || '');
+    if (title && item.title) {
+        text = `${item.title}\n\n${text}`;
+    }
     const splitText = splitTextIntoParts(text);
     console.log(`Split text length: ${splitText.length}`);
 
@@ -108,7 +131,11 @@ export async function buildPost(item: FeedEntry, agent: AtpAgent): Promise<Post[
 
     console.log(`Image groups: ${imageGroups.length}`);
 
-    return helper(splitText, imageGroups, createdAt);
+    return helper(splitText, imageGroups, createdAt, 0, []);
+}
+
+function getByteLength(str: string): number {
+    return new TextEncoder().encode(str).length;
 }
 
 export async function uploadImagesToBluesky(agent: AtpAgent, imageUrls: string[]) {
