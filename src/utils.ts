@@ -65,7 +65,7 @@ export function extractImageUrls(html: string): string[] {
     return imageUrls;
 }
 
-export async function buildPost(item: FeedEntry, agent: AtpAgent, title?: boolean): Promise<Post[]> {
+export async function buildPost(item: FeedEntry, agent: AtpAgent, with_title?: boolean): Promise<Post[]> {
 
     function helper(
         texts: string[],
@@ -73,6 +73,7 @@ export async function buildPost(item: FeedEntry, agent: AtpAgent, title?: boolea
         createdAt: string,
         index: number = 0,
         posts: Post[] = [],
+        title?: boolean
     ): Post[] {
         if (index >= texts.length && index >= images.length) {
             return posts;
@@ -121,7 +122,7 @@ export async function buildPost(item: FeedEntry, agent: AtpAgent, title?: boolea
     const createdAt = item.published || new Date().toISOString();
 
     let text = buildDescription(item.description || '');
-    if (title && item.title) {
+    if (with_title && item.title) {
         text = `${item.title}\n\n${text}`;
     }
     const splitText = splitTextIntoParts(text);
@@ -131,7 +132,7 @@ export async function buildPost(item: FeedEntry, agent: AtpAgent, title?: boolea
 
     console.log(`Image groups: ${imageGroups.length}`);
 
-    return helper(splitText, imageGroups, createdAt, 0, []);
+    return helper(splitText, imageGroups, createdAt, 0, [], with_title);
 }
 
 function getByteLength(str: string): number {
