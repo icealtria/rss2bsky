@@ -60,31 +60,6 @@ async function postThread(
         await saveFailedThread(env, posts, context);
     }
 }
-export async function retryFailedPosts(env: Env, delayMs = 5000): Promise<void> {
-    const failedPosts = await getFailedPosts(env);
-    console.log(`Retrying ${failedPosts.length} failed posts...`);
-    if (failedPosts.length === 0) {
-        console.log('No failed posts to retry.');
-        return;
-    }
-
-    const agent = await getAgent(env);
-
-    for (const { key, data } of failedPosts) {
-        try {
-            console.log(`Retrying post ${key}...`);
-            await postThread(agent, data.remainingParts, env, {
-                previousUri: data.previousUri,
-                previousCid: data.previousCid,
-                rootUri: data.rootUri,
-                rootCid: data.rootCid,
-                retryKey: key
-            }, delayMs);
-        } catch (error) {
-            console.error(`Failed to retry post ${key}:`, error);
-        }
-    }
-}
 
 async function getAgent(env: Env): Promise<AtpAgent> {
     const agent = new AtpAgent({ service: 'https://bsky.social' });
